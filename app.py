@@ -9,69 +9,67 @@ import docx2txt
 import pdfplumber
 
 app = Flask(__name__)
-app.secret_key = os.environ.get('SECRET_KEY', 'cloud-secret')
+app.secret_key = os.environ.get("SECRET_KEY", "cloud-secret")
 
 
-# ==============================
-# BRFv1.0 STRICT CONFIG
-# ==============================
+# =========================
+# BRFv1.0 STRICT SETTINGS
+# =========================
+FONT_NAME = "Times New Roman"
+FONT_SIZE = 10
 
-BRF = {
-    "font_name": "Times New Roman",
-    "font_size": 10,
-    "space_before": 0,
-    "space_after": 0,
-    "line_spacing": 1,
-    "summary_heading": "Summary :",
-    "technical_heading": "Technical Skills :",
-    "education_heading": "Education :",
-    "experience_heading": "Professional Experience :"
-}
+SUMMARY_HEADING = "Summary :"
+TECH_HEADING = "Technical Skills :"
+EDU_HEADING = "Education :"
+EXP_HEADING = "Professional Experience :"
 
 
-# ==============================
-# UTILITIES
-# ==============================
-
-def extract_text(file_path):
-    ext = os.path.splitext(file_path)[1].lower()
+# =========================
+# TEXT EXTRACTION
+# =========================
+def extract_text(path):
+    ext = os.path.splitext(path)[1].lower()
     text = ""
 
     if ext == ".pdf":
-        with pdfplumber.open(file_path) as pdf:
+        with pdfplumber.open(path) as pdf:
             for page in pdf.pages:
                 text += page.extract_text() or ""
     elif ext == ".docx":
-        text = docx2txt.process(file_path)
+        text = docx2txt.process(path)
 
     return text
 
 
-def clean_line(line):
-    """Remove ALL original bullet symbols without changing wording"""
-    return re.sub(r'^[\-\•\●\▪\*\–]+\s*', '', line.strip())
+# =========================
+# REMOVE ALL ORIGINAL BULLETS
+# =========================
+def remove_original_bullets(line):
+    return re.sub(
+        r'^\s*[\-\•\●\▪\◦\▪\■\□\*\–\—\→\►\➤\➔\➢\✓\✔\·]+\s*',
+        '',
+        line
+    )
 
 
+# =========================
+# APPLY GLOBAL FORMATTING
+# =========================
 def apply_global_formatting(doc):
-    style = doc.styles['Normal']
-    style.font.name = BRF["font_name"]
-    style.font.size = Pt(BRF["font_size"])
+    style = doc.styles["Normal"]
+    style.font.name = FONT_NAME
+    style.font.size = Pt(FONT_SIZE)
 
     for p in doc.paragraphs:
-        p.paragraph_format.space_before = Pt(BRF["space_before"])
-        p.paragraph_format.space_after = Pt(BRF["space_after"])
-        p.paragraph_format.line_spacing = BRF["line_spacing"]
+        p.paragraph_format.space_before = Pt(0)
+        p.paragraph_format.space_after = Pt(0)
+        p.paragraph_format.line_spacing = 1
 
 
-# ==============================
+# =========================
 # STRICT SECTION PARSER
-# ==============================
-
-def strict_parse(text):
-    """
-    DOES NOT MODIFY CONTENT.
-    ONLY SPLITS BASED ON HEADINGS.
-    """
+# =========================
+def parse_sections(text):
 
     lines = [l.rstrip() for l in text.split("\n")]
 
@@ -107,130 +105,108 @@ def strict_parse(text):
         if current:
             sections[current].append(line)
 
-    return {
-        "name": name,
-        "first": first,
-        "last": last,
-        "sections": sections
-    }
+    return name, first, last, sections
 
 
-# ==============================
-# STRICT DOC CREATION
-# ==============================
+# =========================
+# CREATE STRICT BRF DOC
+# =========================
+def create_brf_document(name, first, last, sections):
 
-def create_brf_doc(data):
     doc = Document()
 
     # NAME CENTERED
-    name_para = doc.add_paragraph(data["name"])
-    name_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
-
-    sections = data["sections"]
+    p = doc.add_paragraph(name)
+    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
 
     # ================= SUMMARY =================
-    p = doc.add_paragraph(BRF["summary_heading"])
+    p = doc.add_paragraph(SUMMARY_HEADING)
     p.runs[0].bold = True
 
     for line in sections["summary"]:
-        line = clean_line(line)
-        if line.strip():
-            doc.add_paragraph(f"• {line}")
+        cleaned = remove_original_bullets(line).strip()
+        if cleaned:
+            doc.add_paragraph("• " + cleaned)
 
-    doc.add_paragraph()  # one line gap after summary
+    doc.add_paragraph()  # one blank line after Summary
 
 
     # ================= TECHNICAL SKILLS =================
-    p = doc.add_paragraph(BRF["technical_heading"])
+    p = doc.add_paragraph(TECH_HEADING)
     p.runs[0].bold = True
 
     for line in sections["technical"]:
-        line = clean_line(line)
-        if line.strip():
-            doc.add_paragraph(line)
-
-    doc.add_paragraph()  # one line gap after education
+        cleaned = remove_original_bullets(line).strip()
+        if cleaned:
+            doc.add_paragraph(cleaned)
 
 
     # ================= EDUCATION =================
-    p = doc.add_paragraph(BRF["education_heading"])
+    p = doc.add_paragraph(EDU_HEADING)
     p.runs[0].bold = True
 
     for line in sections["education"]:
-        line = clean_line(line)
-        if line.strip():
-            doc.add_paragraph(line)
+        cleaned = remove_original_bullets(line).strip()
+        if cleaned:
+            doc.add_paragraph(cleaned)
 
-    doc.add_paragraph()
+    doc.add_paragraph()  # one blank line after Education
 
 
-    # ================= EXPERIENCE =================
-    p = doc.add_paragraph(BRF["experience_heading"])
+    # ================= PROFESSIONAL EXPERIENCE =================
+    p = doc.add_paragraph(EXP_HEADING)
     p.runs[0].bold = True
 
-    buffer = []
-
-    for line in sections["experience"]:
-        line = clean_line(line)
-
-        if line.strip() == "":
-            continue
-
-        buffer.append(line)
-
-        # Detect new project when line looks like company header
-        if "," in line and len(buffer) > 1:
-            pass
-
-    # STRICT RULE:
-    # We do NOT restructure.
-    # We only apply bullet formatting AFTER first 2 lines of each block.
-
-    project_lines = []
-    for line in sections["experience"]:
-        line = clean_line(line)
-        if line.strip():
-            project_lines.append(line)
+    exp_lines = [
+        remove_original_bullets(l).strip()
+        for l in sections["experience"]
+        if l.strip()
+    ]
 
     i = 0
-    while i < len(project_lines):
+    while i < len(exp_lines):
 
         # Line 1: Company, Location, Duration
-        doc.add_paragraph(project_lines[i])
+        doc.add_paragraph(exp_lines[i])
         i += 1
 
         # Line 2: Role
-        if i < len(project_lines):
-            doc.add_paragraph(project_lines[i])
+        if i < len(exp_lines):
+            doc.add_paragraph(exp_lines[i])
             i += 1
 
-        # Remaining lines as bullets until next header pattern
-        while i < len(project_lines) and "," not in project_lines[i]:
-            doc.add_paragraph(f"• {project_lines[i]}")
+        # Remaining lines as BRF bullets
+        while i < len(exp_lines) and not exp_lines[i].endswith(":"):
+            doc.add_paragraph("• " + exp_lines[i])
             i += 1
 
-        doc.add_paragraph()  # one blank line after project
+        doc.add_paragraph()  # one blank line after each project
+
 
     apply_global_formatting(doc)
 
-    filename = f"{data['first']} {data['last']}.docx"
+    filename = f"{first} {last}.docx"
     path = f"/tmp/{filename}"
     doc.save(path)
 
     return path, filename
 
 
-# ==============================
+# =========================
 # ROUTE
-# ==============================
-
+# =========================
 @app.route("/", methods=["GET", "POST"])
 def index():
+
     if request.method == "POST":
         file = request.files.get("resume")
 
-        if not file:
-            flash("Upload a resume file")
+        if not file or not file.filename:
+            flash("Please upload a resume file")
+            return render_template_string("<h1>Error</h1>")
+
+        if not file.filename.lower().endswith((".pdf", ".docx")):
+            flash("Only PDF and DOCX supported")
             return render_template_string("<h1>Error</h1>")
 
         with tempfile.NamedTemporaryFile(delete=False) as tmp:
@@ -238,15 +214,20 @@ def index():
             text = extract_text(tmp.name)
             os.unlink(tmp.name)
 
-        data = strict_parse(text)
-        path, filename = create_brf_doc(data)
+        name, first, last, sections = parse_sections(text)
 
-        return send_file(path,
-                         as_attachment=True,
-                         download_name=filename,
-                         mimetype="application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+        path, filename = create_brf_document(
+            name, first, last, sections
+        )
 
-    return "<h1>BRFv1.0 Strict Engine Running</h1>"
+        return send_file(
+            path,
+            as_attachment=True,
+            download_name=filename,
+            mimetype="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        )
+
+    return "<h2>BRFv1.0 Strict Formatter Running</h2>"
 
 
 if __name__ == "__main__":
