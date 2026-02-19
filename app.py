@@ -1,19 +1,18 @@
-from flask import Flask, render_template_string, request, send_file, flash
+from flask import Flask, request, send_file, flash, render_template_string
 import os
 import tempfile
 import re
 from docx import Document
 from docx.shared import Pt
-from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_TAB_ALIGNMENT
 import docx2txt
 import pdfplumber
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "cloud-secret")
 
-
 # =========================
-# BRFv1.0 STRICT SETTINGS
+# BRF SETTINGS
 # =========================
 FONT_NAME = "Times New Roman"
 FONT_SIZE = 10
@@ -23,9 +22,8 @@ TECH_HEADING = "Technical Skills :"
 EDU_HEADING = "Education :"
 EXP_HEADING = "Professional Experience :"
 
-
 # =========================
-# TEXT EXTRACTION
+# EXTRACT TEXT
 # =========================
 def extract_text(path):
     ext = os.path.splitext(path)[1].lower()
@@ -46,14 +44,14 @@ def extract_text(path):
 # =========================
 def remove_original_bullets(line):
     return re.sub(
-        r'^\s*[\-\•\●\▪\◦\▪\■\□\*\–\—\→\►\➤\➔\➢\✓\✔\·]+\s*',
+        r'^\s*[\-\•\●\▪\◦\■\□\*\–\—\→\►\➤\➔\➢\✓\✔\·]+\s*',
         '',
         line
     )
 
 
 # =========================
-# APPLY GLOBAL FORMATTING
+# GLOBAL FORMATTING
 # =========================
 def apply_global_formatting(doc):
     style = doc.styles["Normal"]
@@ -64,6 +62,43 @@ def apply_global_formatting(doc):
         p.paragraph_format.space_before = Pt(0)
         p.paragraph_format.space_after = Pt(0)
         p.paragraph_format.line_spacing = 1
+
+
+# =========================
+# BRF BULLET FORMAT
+# • + TAB + TEXT
+# =========================
+def add_brf_bullet(doc, text):
+    para = doc.add_paragraph()
+    para.add_run("•\t" + text)
+    return para
+
+
+# =========================
+# RIGHT ALIGNED DURATION
+# =========================
+def add_project_header(doc, header_line):
+    para = doc.add_paragraph()
+
+    duration_match = re.search(
+        r'([A-Za-z]{3,9}\s\d{4}\s?[–-]\s?[A-Za-z]{3,9}\s\d{4}|Present|Current)',
+        header_line
+    )
+
+    if duration_match:
+        duration = duration_match.group(0)
+        left_part = header_line.replace(duration, "").strip()
+
+        para.add_run(left_part)
+        para.add_run("\t")
+        para.add_run(duration)
+
+        para.paragraph_format.tab_stops.add_tab_stop(
+            Pt(450),
+            WD_TAB_ALIGNMENT.RIGHT
+        )
+    else:
+        para.add_run(header_line)
 
 
 # =========================
@@ -109,7 +144,7 @@ def parse_sections(text):
 
 
 # =========================
-# CREATE STRICT BRF DOC
+# CREATE BRF DOCUMENT
 # =========================
 def create_brf_document(name, first, last, sections):
 
@@ -126,10 +161,9 @@ def create_brf_document(name, first, last, sections):
     for line in sections["summary"]:
         cleaned = remove_original_bullets(line).strip()
         if cleaned:
-            doc.add_paragraph("• " + cleaned)
+            add_brf_bullet(doc, cleaned)
 
     doc.add_paragraph()  # one blank line after Summary
-
 
     # ================= TECHNICAL SKILLS =================
     p = doc.add_paragraph(TECH_HEADING)
@@ -139,7 +173,6 @@ def create_brf_document(name, first, last, sections):
         cleaned = remove_original_bullets(line).strip()
         if cleaned:
             doc.add_paragraph(cleaned)
-
 
     # ================= EDUCATION =================
     p = doc.add_paragraph(EDU_HEADING)
@@ -152,8 +185,7 @@ def create_brf_document(name, first, last, sections):
 
     doc.add_paragraph()  # one blank line after Education
 
-
-    # ================= PROFESSIONAL EXPERIENCE =================
+    # ================= EXPERIENCE =================
     p = doc.add_paragraph(EXP_HEADING)
     p.runs[0].bold = True
 
@@ -166,22 +198,24 @@ def create_brf_document(name, first, last, sections):
     i = 0
     while i < len(exp_lines):
 
-        # Line 1: Company, Location, Duration
-        doc.add_paragraph(exp_lines[i])
+        # Project header (Company, Location, Duration)
+        add_project_header(doc, exp_lines[i])
         i += 1
 
-        # Line 2: Role
+        # Role
         if i < len(exp_lines):
             doc.add_paragraph(exp_lines[i])
             i += 1
 
-        # Remaining lines as BRF bullets
-        while i < len(exp_lines) and not exp_lines[i].endswith(":"):
-            doc.add_paragraph("• " + exp_lines[i])
+        # Description bullets
+        while i < len(exp_lines) and not re.search(
+            r'[A-Za-z]{3,9}\s\d{4}\s?[–-]\s?[A-Za-z]{3,9}\s\d{4}',
+            exp_lines[i]
+        ):
+            add_brf_bullet(doc, exp_lines[i])
             i += 1
 
         doc.add_paragraph()  # one blank line after each project
-
 
     apply_global_formatting(doc)
 
@@ -202,12 +236,12 @@ def index():
         file = request.files.get("resume")
 
         if not file or not file.filename:
-            flash("Please upload a resume file")
-            return render_template_string("<h1>Error</h1>")
+            flash("Please upload resume")
+            return render_template_string("<h2>Error</h2>")
 
         if not file.filename.lower().endswith((".pdf", ".docx")):
             flash("Only PDF and DOCX supported")
-            return render_template_string("<h1>Error</h1>")
+            return render_template_string("<h2>Error</h2>")
 
         with tempfile.NamedTemporaryFile(delete=False) as tmp:
             file.save(tmp.name)
