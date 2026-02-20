@@ -1,268 +1,72 @@
-from flask import Flask, request, send_file, flash, render_template_string
-import os
-import tempfile
-import re
+import streamlit as st
+import docx
 from docx import Document
 from docx.shared import Pt
-from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_TAB_ALIGNMENT
+from docx.enum.text import WD_ALIGN_PARAGRAPH
+import fitz  # PyMuPDF for PDF
 import docx2txt
 import pdfplumber
+import re
+import os
 
-app = Flask(__name__)
-app.secret_key = os.environ.get("SECRET_KEY", "cloud-secret")
+st.title("Resume Formatter")
 
-# =========================
-# BRF SETTINGS
-# =========================
-FONT_NAME = "Times New Roman"
-FONT_SIZE = 10
+uploaded_file = st.file_uploader("Upload Resume", type=['pdf', 'doc', 'docx', 'txt'])
 
-SUMMARY_HEADING = "Summary :"
-TECH_HEADING = "Technical Skills :"
-EDU_HEADING = "Education :"
-EXP_HEADING = "Professional Experience :"
-
-# =========================
-# EXTRACT TEXT
-# =========================
-def extract_text(path):
-    ext = os.path.splitext(path)[1].lower()
-    text = ""
-
-    if ext == ".pdf":
-        with pdfplumber.open(path) as pdf:
-            for page in pdf.pages:
-                text += page.extract_text() or ""
-    elif ext == ".docx":
-        text = docx2txt.process(path)
-
-    return text
-
-
-# =========================
-# REMOVE ALL ORIGINAL BULLETS
-# =========================
-def remove_original_bullets(line):
-    return re.sub(
-        r'^\s*[\-\•\●\▪\◦\■\□\*\–\—\→\►\➤\➔\➢\✓\✔\·]+\s*',
-        '',
-        line
-    )
-
-
-# =========================
-# GLOBAL FORMATTING
-# =========================
-def apply_global_formatting(doc):
-    style = doc.styles["Normal"]
-    style.font.name = FONT_NAME
-    style.font.size = Pt(FONT_SIZE)
-
-    for p in doc.paragraphs:
-        p.paragraph_format.space_before = Pt(0)
-        p.paragraph_format.space_after = Pt(0)
-        p.paragraph_format.line_spacing = 1
-
-
-# =========================
-# BRF BULLET FORMAT
-# • + TAB + TEXT
-# =========================
-def add_brf_bullet(doc, text):
-    para = doc.add_paragraph()
-    para.add_run("•\t" + text)
-    return para
-
-
-# =========================
-# RIGHT ALIGNED DURATION
-# =========================
-def add_project_header(doc, header_line):
-    para = doc.add_paragraph()
-
-    duration_match = re.search(
-        r'([A-Za-z]{3,9}\s\d{4}\s?[–-]\s?[A-Za-z]{3,9}\s\d{4}|Present|Current)',
-        header_line
-    )
-
-    if duration_match:
-        duration = duration_match.group(0)
-        left_part = header_line.replace(duration, "").strip()
-
-        para.add_run(left_part)
-        para.add_run("\t")
-        para.add_run(duration)
-
-        para.paragraph_format.tab_stops.add_tab_stop(
-            Pt(450),
-            WD_TAB_ALIGNMENT.RIGHT
-        )
+if uploaded_file:
+    # Extract text (handle formats)
+    if uploaded_file.name.endswith('.pdf'):
+        with pdfplumber.open(uploaded_file) as pdf:
+            text = '\n'.join(page.extract_text() for page in pdf.pages)
     else:
-        para.add_run(header_line)
+        text = docx2txt.process(uploaded_file)
 
+    # Parse sections (regex-based; customize per your needs for Summary, Skills, etc.)
+    name = re.search(r'([A-Z][a-z]+ [A-Z][a-z]+)', text[:200]).group(0)  # Extract name
+    first, last = name.split()
+    name_formatted = f"{first.capitalize()} {last.capitalize()}"
 
-# =========================
-# STRICT SECTION PARSER
-# =========================
-def parse_sections(text):
-
-    lines = [l.rstrip() for l in text.split("\n")]
-
-    name = lines[0].strip()
-    first = name.split()[0]
-    last = " ".join(name.split()[1:]) if len(name.split()) > 1 else ""
-
-    sections = {
-        "summary": [],
-        "technical": [],
-        "education": [],
-        "experience": []
-    }
-
-    current = None
-
-    for line in lines[1:]:
-        lower = line.lower()
-
-        if "summary" in lower:
-            current = "summary"
-            continue
-        elif "technical" in lower:
-            current = "technical"
-            continue
-        elif "education" in lower:
-            current = "education"
-            continue
-        elif "experience" in lower:
-            current = "experience"
-            continue
-
-        if current:
-            sections[current].append(line)
-
-    return name, first, last, sections
-
-
-# =========================
-# CREATE BRF DOCUMENT
-# =========================
-def create_brf_document(name, first, last, sections):
-
+    # Create DOCX
     doc = Document()
+    doc.styles['Normal'].font.name = 'Times New Roman'
 
-    # NAME CENTERED
-    p = doc.add_paragraph(name)
+    # Name (Req 3)
+    p = doc.add_paragraph(name_formatted)
     p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    run = p.runs
+    run.bold = True
+    run.font.size = Pt(11)
 
-    # ================= SUMMARY =================
-    p = doc.add_paragraph(SUMMARY_HEADING)
-    p.runs[0].bold = True
+    doc.add_paragraph()  # Space
 
-    for line in sections["summary"]:
-        cleaned = remove_original_bullets(line).strip()
-        if cleaned:
-            add_brf_bullet(doc, cleaned)
+    # Summary (Req 4)
+    summary_match = re.search(r'Summary(.*?)Technical Skills', text, re.DOTALL | re.I)
+    if summary_match:
+        summary = [line.strip() for line in summary_match.group(1).split('\n') if line.strip()]
+        p = doc.add_paragraph('Summary')
+        p.runs.bold = True
+        p.runs.font.size = Pt(10)
+        for item in summary:
+            p = doc.add_paragraph(f"-  {item}")
+            p.paragraph_format.space_before = 0
+            p.paragraph_format.space_after = 0
+            run = p.runs
+            run.font.size = Pt(10)
+            run.font.name = 'Times New Roman'
 
-    doc.add_paragraph()  # one blank line after Summary
+    # Add other sections similarly: Technical Skills (Req 5), Education/Cert/Training (Req 6), Experience (Req 7)
+    # Parse with regex, format bullets/spacing/tabs per specs. Example for Experience:
+    # exp_match = re.search(r'Professional Experience(.*)', text, re.DOTALL | re.I)
+    # Split into projects, format Company/Location/Duration, Role, bullets.
 
-    # ================= TECHNICAL SKILLS =================
-    p = doc.add_paragraph(TECH_HEADING)
-    p.runs[0].bold = True
+    # Global: Zero spacing, TNR font everywhere
+    for para in doc.paragraphs:
+        para.paragraph_format.space_before = 0
+        para.paragraph_format.space_after = 0
 
-    for line in sections["technical"]:
-        cleaned = remove_original_bullets(line).strip()
-        if cleaned:
-            doc.add_paragraph(cleaned)
-
-    # ================= EDUCATION =================
-    p = doc.add_paragraph(EDU_HEADING)
-    p.runs[0].bold = True
-
-    for line in sections["education"]:
-        cleaned = remove_original_bullets(line).strip()
-        if cleaned:
-            doc.add_paragraph(cleaned)
-
-    doc.add_paragraph()  # one blank line after Education
-
-    # ================= EXPERIENCE =================
-    p = doc.add_paragraph(EXP_HEADING)
-    p.runs[0].bold = True
-
-    exp_lines = [
-        remove_original_bullets(l).strip()
-        for l in sections["experience"]
-        if l.strip()
-    ]
-
-    i = 0
-    while i < len(exp_lines):
-
-        # Project header (Company, Location, Duration)
-        add_project_header(doc, exp_lines[i])
-        i += 1
-
-        # Role
-        if i < len(exp_lines):
-            doc.add_paragraph(exp_lines[i])
-            i += 1
-
-        # Description bullets
-        while i < len(exp_lines) and not re.search(
-            r'[A-Za-z]{3,9}\s\d{4}\s?[–-]\s?[A-Za-z]{3,9}\s\d{4}',
-            exp_lines[i]
-        ):
-            add_brf_bullet(doc, exp_lines[i])
-            i += 1
-
-        doc.add_paragraph()  # one blank line after each project
-
-    apply_global_formatting(doc)
-
-    filename = f"{first} {last}.docx"
-    path = f"/tmp/{filename}"
-    doc.save(path)
-
-    return path, filename
-
-
-# =========================
-# ROUTE
-# =========================
-@app.route("/", methods=["GET", "POST"])
-def index():
-
-    if request.method == "POST":
-        file = request.files.get("resume")
-
-        if not file or not file.filename:
-            flash("Please upload resume")
-            return render_template_string("<h2>Error</h2>")
-
-        if not file.filename.lower().endswith((".pdf", ".docx")):
-            flash("Only PDF and DOCX supported")
-            return render_template_string("<h2>Error</h2>")
-
-        with tempfile.NamedTemporaryFile(delete=False) as tmp:
-            file.save(tmp.name)
-            text = extract_text(tmp.name)
-            os.unlink(tmp.name)
-
-        name, first, last, sections = parse_sections(text)
-
-        path, filename = create_brf_document(
-            name, first, last, sections
-        )
-
-        return send_file(
-            path,
-            as_attachment=True,
-            download_name=filename,
-            mimetype="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-        )
-
-    return "<h2>BRFv1.0 Strict Formatter Running</h2>"
-
-
-if __name__ == "__main__":
-    app.run()
+    # Save & Download (Req 2)
+    filename = f"{first.capitalize()} {last.capitalize()}.docx"
+    doc.save(filename)
+    with open(filename, 'rb') as f:
+        st.download_button("Download Formatted Resume", f.read(), file_name=filename)
+    os.remove(filename)
