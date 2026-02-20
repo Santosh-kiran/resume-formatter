@@ -1,5 +1,3 @@
 streamlit
 python-docx
-PyMuPDF
-docx2txt
-pdfplumber
+pymupdf
