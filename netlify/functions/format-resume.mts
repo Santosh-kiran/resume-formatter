@@ -1,5 +1,5 @@
 import type { Config } from "@netlify/functions";
-import { Document, Packer, Paragraph, TextRun, AlignmentType, TabStopType, TabStopLeader } from "docx";
+import { Document, Packer, Paragraph, TextRun, AlignmentType, TabStopType } from "docx";
 import mammoth from "mammoth";
 import Busboy from "busboy";
 
@@ -30,7 +30,7 @@ async function parseMultipart(req: Request): Promise<{ fileBuffer: Buffer; fileT
       stream.on("data", (d: Buffer) => chunks.push(d));
       stream.on("end", () => { buf = Buffer.concat(chunks); });
     });
-    bb.on("finish", () => buf ? resolve({ fileBuffer: buf, fileType: mime, filename: fname }) : reject(new Error("No file")));
+    bb.on("finish", () => buf ? resolve({ fileBuffer: buf, fileType: mime, filename: fname }) : reject(new Error("No file uploaded")));
     bb.on("error", reject);
     req.arrayBuffer().then(ab => { bb.write(Buffer.from(ab)); bb.end(); });
   });
@@ -60,11 +60,11 @@ JSON structure:
 Rules:
 - Preserve exact original wording, do not rephrase anything
 - Remove all bullet symbols, URLs, hyperlinks from text values
-- If section missing use empty array
-- education = degrees only, certifications = certs only, training = training only`;
+- education = degrees only, certifications = certs only, training = training only
+- If section missing use empty array []`;
 
-  const userMsg = isPdf && pdfB64
-    ? [{ type: "text", text: "Parse this resume:" }, { type: "image_url", image_url: { url: `data:image/png;base64,${pdfB64}`, detail: "high" } }]
+  const userMsg: object = isPdf && pdfB64
+    ? [{ type: "text", text: "Parse this resume PDF:" }, { type: "image_url", image_url: { url: `data:image/png;base64,${pdfB64}`, detail: "high" } }]
     : `Parse this resume:\n\n${text.slice(0, 12000)}`;
 
   const res = await fetch("https://api.openai.com/v1/chat/completions", {
@@ -102,28 +102,55 @@ function bullet(t: string, indent = false) {
 function plain(t: string) {
   return new Paragraph({ children: [new TextRun({ text: clean(t), font: F, size: 20 })], spacing: sp });
 }
+function expHeader(company: string, location: string, duration: string) {
+  return new Paragraph({
+    children: [
+      new TextRun({ text: `${company}, ${location}`, font: F, size: 20 }),
+      new TextRun({ text: "\t" + duration, font: F, size: 20 }),
+    ],
+    tabStops: [{ type: TabStopType.RIGHT, position: 9360 }],
+    spacing: sp,
+  });
+}
 
 async function buildDoc(d: ResumeData): Promise<Buffer> {
   const ps: Paragraph[] = [];
-  ps.push(new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: toProperCase(`${d.firstName} ${d.lastName}`), font: F, size: 22, bold: true })], spacing: sp }));
+
+  // Name
+  ps.push(new Paragraph({
+    alignment: AlignmentType.CENTER,
+    children: [new TextRun({ text: toProperCase(`${d.firstName} ${d.lastName}`), font: F, size: 22, bold: true })],
+    spacing: sp,
+  }));
+
+  // Summary
   ps.push(blank()); ps.push(heading("Summary"));
   (d.summary || []).forEach(x => ps.push(bullet(x)));
+
+  // Technical Skills
   ps.push(blank()); ps.push(heading("Technical Skills"));
   (d.technicalSkills || []).forEach(x => ps.push(plain(x)));
+
+  // Education, Certification & Training
   ps.push(blank()); ps.push(heading("Education, Certification & Training"));
   [...(d.education||[]),...(d.certifications||[]),...(d.training||[])].forEach(x => ps.push(bullet(x, true)));
+
+  // Professional Experience
   ps.push(blank()); ps.push(heading("Professional Experience"));
   (d.experience || []).forEach((e, i) => {
-    ps.push(new Paragraph({ children: [new TextRun({ text: `${e.company}, ${e.location}`, font: F, size: 20 }), new TextRun({ text: "\t" + (e.duration || ""), font: F, size: 20 })], tabStops: [{ type: TabStopType.RIGHT, position: 9360, leader: TabStopLeader.NONE }], spacing: sp }));
-    ps.push(plain(e.role));
+    ps.push(expHeader(e.company || "", e.location || "", e.duration || ""));
+    ps.push(plain(e.role || ""));
     (e.descriptions || []).forEach(x => ps.push(bullet(x, true)));
     if (i < (d.experience.length - 1)) ps.push(blank());
   });
+
   return await Packer.toBuffer(new Document({ sections: [{ properties: {}, children: ps }] }));
 }
 
 export default async (req: Request): Promise<Response> => {
-  if (req.method !== "POST") return new Response(JSON.stringify({ error: "POST only" }), { status: 405, headers: { "Content-Type": "application/json" } });
+  if (req.method !== "POST") {
+    return new Response(JSON.stringify({ error: "POST only" }), { status: 405, headers: { "Content-Type": "application/json" } });
+  }
   try {
     const { fileBuffer, fileType, filename } = await parseMultipart(req);
     const xfn = req.headers.get("x-filename") || filename;
@@ -131,8 +158,17 @@ export default async (req: Request): Promise<Response> => {
     const isPdf = raw.startsWith("__PDF__");
     const resume = await callOpenAI(isPdf ? "" : raw, isPdf, isPdf ? raw.slice(7) : undefined);
     const docBuf = await buildDoc(resume);
-    const outName = `${toProperCase(resume.firstName).replace(/\s+/g,"")} ${toProperCase(resume.lastName).replace(/\s+/g,"")}.docx`;
-    return new Response(docBuf, { status: 200, headers: { "Content-Type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "Content-Disposition": `attachment; filename="${outName}"`, "X-Candidate-Name": `${resume.firstName} ${resume.lastName}` } });
+    const fn = toProperCase(resume.firstName || "").replace(/\s+/g,"");
+    const ln = toProperCase(resume.lastName || "").replace(/\s+/g,"");
+    const outName = `${fn} ${ln}.docx`;
+    return new Response(docBuf, {
+      status: 200,
+      headers: {
+        "Content-Type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "Content-Disposition": `attachment; filename="${outName}"`,
+        "X-Candidate-Name": `${resume.firstName} ${resume.lastName}`,
+      },
+    });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error("RESUME ERROR:", msg);
