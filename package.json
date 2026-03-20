@@ -1,19 +1,10 @@
 {
   "name": "resume-formatter",
   "version": "1.0.0",
-  "description": "AI-powered resume formatting application",
-  "scripts": {
-    "dev": "netlify dev",
-    "build": "echo 'No build step required'"
-  },
   "dependencies": {
     "@netlify/functions": "^2.0.0",
     "mammoth": "^1.7.0",
     "docx": "^8.5.0",
-    "pdf-parse": "^1.1.1",
     "busboy": "^1.6.0"
-  },
-  "devDependencies": {
-    "@types/node": "^20.0.0"
   }
 }
