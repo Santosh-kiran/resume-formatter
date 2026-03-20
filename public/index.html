@@ -1,0 +1,777 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ResumeForge – AI Resume Formatter</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;0,700;1,300;1,400&family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --ink: #1a1410;
+      --paper: #faf8f4;
+      --cream: #f0ece3;
+      --gold: #c8952a;
+      --gold-light: #e8c46a;
+      --rust: #8b3a1e;
+      --sage: #4a6741;
+      --muted: #7a6f63;
+      --border: #d4cec4;
+      --shadow: rgba(26,20,16,0.12);
+    }
+
+    html, body {
+      height: 100%;
+      background: var(--paper);
+      color: var(--ink);
+      font-family: 'DM Mono', monospace;
+    }
+
+    /* ── noise texture overlay ── */
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='200' height='200' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E");
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    .page {
+      position: relative;
+      z-index: 1;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* ── header ── */
+    header {
+      padding: 2rem 3rem 1.5rem;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: baseline;
+      gap: 1.5rem;
+    }
+
+    .logo {
+      font-family: 'Cormorant Garamond', serif;
+      font-size: 2rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      color: var(--ink);
+    }
+
+    .logo span {
+      color: var(--gold);
+    }
+
+    .logo-sub {
+      font-size: 0.68rem;
+      color: var(--muted);
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+    }
+
+    /* ── main layout ── */
+    main {
+      flex: 1;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0;
+    }
+
+    /* ── left panel ── */
+    .left-panel {
+      padding: 3rem;
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      gap: 2.5rem;
+    }
+
+    .panel-title {
+      font-family: 'Cormorant Garamond', serif;
+      font-size: 1.6rem;
+      font-weight: 600;
+      line-height: 1.2;
+    }
+
+    .panel-title em {
+      font-style: italic;
+      color: var(--gold);
+    }
+
+    .panel-desc {
+      font-size: 0.72rem;
+      color: var(--muted);
+      line-height: 1.8;
+      letter-spacing: 0.02em;
+    }
+
+    /* ── drop zone ── */
+    .drop-zone {
+      border: 1.5px dashed var(--border);
+      border-radius: 4px;
+      padding: 3rem 2rem;
+      text-align: center;
+      cursor: pointer;
+      transition: border-color 0.2s, background 0.2s;
+      background: transparent;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .drop-zone:hover, .drop-zone.dragover {
+      border-color: var(--gold);
+      background: rgba(200,149,42,0.04);
+    }
+
+    .drop-zone input[type="file"] {
+      position: absolute;
+      inset: 0;
+      opacity: 0;
+      cursor: pointer;
+      width: 100%;
+      height: 100%;
+    }
+
+    .drop-icon {
+      font-size: 2.5rem;
+      margin-bottom: 1rem;
+      display: block;
+    }
+
+    .drop-text {
+      font-size: 0.75rem;
+      color: var(--muted);
+      line-height: 1.8;
+    }
+
+    .drop-text strong {
+      display: block;
+      font-size: 0.85rem;
+      color: var(--ink);
+      margin-bottom: 0.3rem;
+    }
+
+    .file-types {
+      margin-top: 1rem;
+      display: flex;
+      justify-content: center;
+      flex-wrap: wrap;
+      gap: 0.4rem;
+    }
+
+    .badge {
+      font-size: 0.6rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      padding: 0.2rem 0.5rem;
+      border: 1px solid var(--border);
+      border-radius: 2px;
+      color: var(--muted);
+      background: var(--cream);
+    }
+
+    /* ── selected file display ── */
+    .selected-file {
+      display: none;
+      align-items: center;
+      gap: 0.75rem;
+      padding: 0.9rem 1rem;
+      background: var(--cream);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      font-size: 0.72rem;
+    }
+
+    .selected-file.visible { display: flex; }
+
+    .file-icon { font-size: 1.3rem; }
+
+    .file-info { flex: 1; min-width: 0; }
+    .file-name {
+      font-weight: 500;
+      color: var(--ink);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .file-size { color: var(--muted); font-size: 0.65rem; margin-top: 0.1rem; }
+
+    .remove-btn {
+      background: none;
+      border: none;
+      cursor: pointer;
+      color: var(--muted);
+      font-size: 1rem;
+      line-height: 1;
+      padding: 0.2rem;
+      transition: color 0.15s;
+    }
+    .remove-btn:hover { color: var(--rust); }
+
+    /* ── submit button ── */
+    .submit-btn {
+      width: 100%;
+      padding: 1rem;
+      background: var(--ink);
+      color: var(--paper);
+      border: none;
+      border-radius: 3px;
+      font-family: 'DM Mono', monospace;
+      font-size: 0.75rem;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      cursor: pointer;
+      transition: background 0.2s, transform 0.1s;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .submit-btn:hover:not(:disabled) {
+      background: var(--gold);
+      color: var(--ink);
+    }
+
+    .submit-btn:active:not(:disabled) { transform: scale(0.99); }
+
+    .submit-btn:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+
+    /* ── right panel ── */
+    .right-panel {
+      padding: 3rem;
+      display: flex;
+      flex-direction: column;
+      gap: 2rem;
+    }
+
+    /* ── status / progress ── */
+    .status-area {
+      display: none;
+      flex-direction: column;
+      gap: 1.2rem;
+    }
+    .status-area.visible { display: flex; }
+
+    .status-label {
+      font-size: 0.65rem;
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+
+    .steps {
+      display: flex;
+      flex-direction: column;
+      gap: 0.6rem;
+    }
+
+    .step {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      font-size: 0.72rem;
+      color: var(--muted);
+      transition: color 0.3s;
+    }
+
+    .step.active { color: var(--ink); }
+    .step.done { color: var(--sage); }
+    .step.error-step { color: var(--rust); }
+
+    .step-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      border: 1.5px solid currentColor;
+      flex-shrink: 0;
+      transition: background 0.3s;
+    }
+
+    .step.active .step-dot {
+      background: var(--gold);
+      border-color: var(--gold);
+      animation: pulse 1s ease-in-out infinite;
+    }
+
+    .step.done .step-dot {
+      background: var(--sage);
+      border-color: var(--sage);
+    }
+
+    .step.error-step .step-dot {
+      background: var(--rust);
+      border-color: var(--rust);
+    }
+
+    @keyframes pulse {
+      0%, 100% { transform: scale(1); opacity: 1; }
+      50% { transform: scale(1.4); opacity: 0.7; }
+    }
+
+    /* ── progress bar ── */
+    .progress-track {
+      height: 2px;
+      background: var(--border);
+      border-radius: 1px;
+      overflow: hidden;
+    }
+
+    .progress-fill {
+      height: 100%;
+      background: linear-gradient(90deg, var(--gold-light), var(--gold));
+      width: 0%;
+      transition: width 0.5s ease;
+      border-radius: 1px;
+    }
+
+    /* ── success card ── */
+    .success-card {
+      display: none;
+      padding: 2rem;
+      background: var(--cream);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      border-left: 3px solid var(--sage);
+    }
+    .success-card.visible { display: block; }
+
+    .success-title {
+      font-family: 'Cormorant Garamond', serif;
+      font-size: 1.3rem;
+      font-weight: 600;
+      color: var(--sage);
+      margin-bottom: 0.5rem;
+    }
+
+    .success-name {
+      font-size: 0.75rem;
+      color: var(--ink);
+      margin-bottom: 1.2rem;
+    }
+
+    .download-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.7rem 1.4rem;
+      background: var(--sage);
+      color: white;
+      border: none;
+      border-radius: 3px;
+      font-family: 'DM Mono', monospace;
+      font-size: 0.7rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      cursor: pointer;
+      transition: background 0.2s;
+      text-decoration: none;
+    }
+
+    .download-btn:hover { background: #3a5531; }
+
+    /* ── error card ── */
+    .error-card {
+      display: none;
+      padding: 1.5rem;
+      background: #fff5f2;
+      border: 1px solid #e8c4bb;
+      border-radius: 4px;
+      border-left: 3px solid var(--rust);
+    }
+    .error-card.visible { display: block; }
+
+    .error-title {
+      font-size: 0.72rem;
+      font-weight: 500;
+      color: var(--rust);
+      margin-bottom: 0.4rem;
+      letter-spacing: 0.05em;
+    }
+    .error-msg {
+      font-size: 0.68rem;
+      color: var(--muted);
+      line-height: 1.7;
+    }
+
+    /* ── info box ── */
+    .info-box {
+      padding: 1.5rem;
+      background: var(--cream);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+    }
+
+    .info-title {
+      font-size: 0.65rem;
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 1rem;
+    }
+
+    .info-list {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 0.6rem;
+    }
+
+    .info-list li {
+      font-size: 0.7rem;
+      color: var(--ink);
+      display: flex;
+      gap: 0.6rem;
+      line-height: 1.5;
+    }
+
+    .info-list li::before {
+      content: '—';
+      color: var(--gold);
+      flex-shrink: 0;
+    }
+
+    /* ── footer ── */
+    footer {
+      padding: 1.2rem 3rem;
+      border-top: 1px solid var(--border);
+      font-size: 0.62rem;
+      color: var(--muted);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    /* ── reset link ── */
+    .reset-link {
+      font-size: 0.65rem;
+      color: var(--muted);
+      cursor: pointer;
+      text-decoration: underline;
+      background: none;
+      border: none;
+      font-family: inherit;
+      margin-top: 0.8rem;
+      display: inline-block;
+    }
+    .reset-link:hover { color: var(--ink); }
+
+    /* ── responsive ── */
+    @media (max-width: 768px) {
+      header { padding: 1.5rem; }
+      main { grid-template-columns: 1fr; }
+      .left-panel, .right-panel { padding: 1.5rem; }
+      .left-panel { border-right: none; border-bottom: 1px solid var(--border); }
+      footer { flex-direction: column; gap: 0.5rem; text-align: center; }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+
+    <header>
+      <div class="logo">Resume<span>Forge</span></div>
+      <span class="logo-sub">AI-Powered Resume Formatter</span>
+    </header>
+
+    <main>
+      <!-- LEFT: Upload -->
+      <div class="left-panel">
+        <div>
+          <h1 class="panel-title">Format your resume<br><em>precisely</em>, automatically.</h1>
+          <p class="panel-desc" style="margin-top:0.8rem">
+            Upload any resume file. Our AI extracts and restructures your content into a
+            perfectly formatted Word document — Times New Roman, exact spacing, correct
+            sections, ready to submit.
+          </p>
+        </div>
+
+        <div class="drop-zone" id="dropZone">
+          <input type="file" id="fileInput" accept=".pdf,.doc,.docx,.txt,.rtf,.odt" />
+          <span class="drop-icon">📄</span>
+          <div class="drop-text">
+            <strong>Drop your resume here</strong>
+            Click to browse or drag & drop
+          </div>
+          <div class="file-types">
+            <span class="badge">PDF</span>
+            <span class="badge">DOCX</span>
+            <span class="badge">DOC</span>
+            <span class="badge">TXT</span>
+            <span class="badge">RTF</span>
+            <span class="badge">ODT</span>
+          </div>
+        </div>
+
+        <div class="selected-file" id="selectedFile">
+          <span class="file-icon">📎</span>
+          <div class="file-info">
+            <div class="file-name" id="fileName">—</div>
+            <div class="file-size" id="fileSize">—</div>
+          </div>
+          <button class="remove-btn" id="removeFile" title="Remove file">✕</button>
+        </div>
+
+        <button class="submit-btn" id="submitBtn" disabled>
+          ↳ Format Resume
+        </button>
+      </div>
+
+      <!-- RIGHT: Status + Results -->
+      <div class="right-panel">
+
+        <!-- Processing Steps -->
+        <div class="status-area" id="statusArea">
+          <span class="status-label">Processing</span>
+          <div class="progress-track">
+            <div class="progress-fill" id="progressFill"></div>
+          </div>
+          <div class="steps">
+            <div class="step" id="step1">
+              <span class="step-dot"></span>
+              Uploading and reading file
+            </div>
+            <div class="step" id="step2">
+              <span class="step-dot"></span>
+              AI extracting resume sections
+            </div>
+            <div class="step" id="step3">
+              <span class="step-dot"></span>
+              Applying formatting rules
+            </div>
+            <div class="step" id="step4">
+              <span class="step-dot"></span>
+              Generating Word document
+            </div>
+          </div>
+        </div>
+
+        <!-- Success -->
+        <div class="success-card" id="successCard">
+          <div class="success-title">✓ Document ready</div>
+          <div class="success-name" id="successName"></div>
+          <a class="download-btn" id="downloadLink" href="#" download>
+            ↓ Download .docx
+          </a>
+          <br />
+          <button class="reset-link" id="resetBtn">Format another resume →</button>
+        </div>
+
+        <!-- Error -->
+        <div class="error-card" id="errorCard">
+          <div class="error-title">Processing failed</div>
+          <div class="error-msg" id="errorMsg"></div>
+          <button class="reset-link" id="retryBtn">Try again →</button>
+        </div>
+
+        <!-- Info -->
+        <div class="info-box" id="infoBox">
+          <div class="info-title">What gets formatted</div>
+          <ul class="info-list">
+            <li>Candidate name — centered, Times New Roman 11pt bold, proper case</li>
+            <li>Summary section — bullet points (•), exact original wording preserved</li>
+            <li>Technical Skills — exact content, zero line spacing</li>
+            <li>Education, Certification & Training — indented bullets, ordered correctly</li>
+            <li>Professional Experience — company/location + duration, role, descriptions</li>
+            <li>Output filename: <em>FirstName LastName.docx</em></li>
+          </ul>
+        </div>
+
+      </div>
+    </main>
+
+    <footer>
+      <span>ResumeForge — Powered by Claude AI</span>
+      <span>Free · Open Source · No data stored</span>
+    </footer>
+  </div>
+
+  <script>
+    const fileInput = document.getElementById('fileInput');
+    const dropZone = document.getElementById('dropZone');
+    const selectedFile = document.getElementById('selectedFile');
+    const fileName = document.getElementById('fileName');
+    const fileSize = document.getElementById('fileSize');
+    const removeFile = document.getElementById('removeFile');
+    const submitBtn = document.getElementById('submitBtn');
+    const statusArea = document.getElementById('statusArea');
+    const progressFill = document.getElementById('progressFill');
+    const successCard = document.getElementById('successCard');
+    const successName = document.getElementById('successName');
+    const downloadLink = document.getElementById('downloadLink');
+    const errorCard = document.getElementById('errorCard');
+    const errorMsg = document.getElementById('errorMsg');
+    const resetBtn = document.getElementById('resetBtn');
+    const retryBtn = document.getElementById('retryBtn');
+    const infoBox = document.getElementById('infoBox');
+
+    let currentFile = null;
+
+    function formatBytes(bytes) {
+      if (bytes < 1024) return bytes + ' B';
+      if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB';
+      return (bytes / 1048576).toFixed(1) + ' MB';
+    }
+
+    function setFile(file) {
+      currentFile = file;
+      fileName.textContent = file.name;
+      fileSize.textContent = formatBytes(file.size);
+      selectedFile.classList.add('visible');
+      submitBtn.disabled = false;
+    }
+
+    function clearFile() {
+      currentFile = null;
+      fileInput.value = '';
+      selectedFile.classList.remove('visible');
+      submitBtn.disabled = true;
+    }
+
+    // Drag & drop
+    dropZone.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      dropZone.classList.add('dragover');
+    });
+    dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+    dropZone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      dropZone.classList.remove('dragover');
+      const file = e.dataTransfer.files[0];
+      if (file) setFile(file);
+    });
+
+    fileInput.addEventListener('change', () => {
+      if (fileInput.files[0]) setFile(fileInput.files[0]);
+    });
+
+    removeFile.addEventListener('click', clearFile);
+
+    // Steps helpers
+    function setStep(stepNum, state) {
+      const step = document.getElementById('step' + stepNum);
+      step.classList.remove('active', 'done', 'error-step');
+      if (state) step.classList.add(state);
+    }
+
+    function resetSteps() {
+      for (let i = 1; i <= 4; i++) setStep(i, '');
+      progressFill.style.width = '0%';
+    }
+
+    async function handleSubmit() {
+      if (!currentFile) return;
+
+      // Reset UI
+      resetSteps();
+      errorCard.classList.remove('visible');
+      successCard.classList.remove('visible');
+      statusArea.classList.add('visible');
+      infoBox.style.display = 'none';
+      submitBtn.disabled = true;
+
+      try {
+        // Step 1
+        setStep(1, 'active');
+        progressFill.style.width = '20%';
+
+        const formData = new FormData();
+        formData.append('resume', currentFile);
+
+        // Step 2
+        setStep(1, 'done');
+        setStep(2, 'active');
+        progressFill.style.width = '45%';
+
+        const response = await fetch('/api/format-resume', {
+          method: 'POST',
+          headers: { 'x-filename': currentFile.name },
+          body: formData,
+        });
+
+        // Step 3
+        setStep(2, 'done');
+        setStep(3, 'active');
+        progressFill.style.width = '70%';
+
+        if (!response.ok) {
+          let errText = 'An error occurred while processing your resume.';
+          try {
+            const json = await response.json();
+            errText = json.error || errText;
+          } catch {}
+          throw new Error(errText);
+        }
+
+        const blob = await response.blob();
+
+        // Step 4
+        setStep(3, 'done');
+        setStep(4, 'active');
+        progressFill.style.width = '90%';
+
+        // Small delay for UX
+        await new Promise(r => setTimeout(r, 400));
+
+        setStep(4, 'done');
+        progressFill.style.width = '100%';
+
+        // Extract candidate name from header
+        const candidateName = response.headers.get('x-candidate-name') || '';
+
+        // Build download
+        const url = URL.createObjectURL(blob);
+        const cd = response.headers.get('content-disposition') || '';
+        const match = cd.match(/filename="?([^"]+)"?/);
+        const dlName = match ? match[1] : `${candidateName || 'Resume'}.docx`;
+
+        downloadLink.href = url;
+        downloadLink.download = dlName;
+
+        successName.textContent = dlName;
+        successCard.classList.add('visible');
+
+        // Auto-click download
+        setTimeout(() => downloadLink.click(), 300);
+
+      } catch (err) {
+        for (let i = 1; i <= 4; i++) {
+          const s = document.getElementById('step' + i);
+          if (s.classList.contains('active')) setStep(i, 'error-step');
+        }
+        errorMsg.textContent = err.message || 'Unexpected error. Please try again.';
+        errorCard.classList.add('visible');
+        submitBtn.disabled = false;
+      }
+    }
+
+    submitBtn.addEventListener('click', handleSubmit);
+
+    function resetAll() {
+      clearFile();
+      statusArea.classList.remove('visible');
+      successCard.classList.remove('visible');
+      errorCard.classList.remove('visible');
+      infoBox.style.display = '';
+      resetSteps();
+      submitBtn.disabled = true;
+    }
+
+    resetBtn.addEventListener('click', resetAll);
+    retryBtn.addEventListener('click', () => {
+      errorCard.classList.remove('visible');
+      statusArea.classList.remove('visible');
+      infoBox.style.display = '';
+      submitBtn.disabled = !currentFile;
+    });
+  </script>
+</body>
+</html>
