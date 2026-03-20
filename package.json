@@ -5,6 +5,7 @@
     "@netlify/functions": "^2.0.0",
     "mammoth": "^1.7.0",
     "docx": "^8.5.0",
-    "busboy": "^1.6.0"
+   "busboy": "^1.6.0",
+    "node-fetch": "^3.0.0"
   }
 }
